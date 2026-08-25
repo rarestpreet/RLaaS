@@ -1,0 +1,4 @@
+-- TODO: Token Bucket Lua Script Placeholder
+-- Atomic token bucket algorithm implementation for Redis
+-- Keys: KEYS[1] = bucketKey
+-- ARGV[1] = capacity, ARGV[2] = refillRate, ARGV[3] = refillIntervalMs, ARGV[4] = requestedTokens, ARGV[5] = currentTimeMs

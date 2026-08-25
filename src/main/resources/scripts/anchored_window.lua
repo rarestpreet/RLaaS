@@ -1,0 +1,4 @@
+-- TODO: Anchored Window Lua Script Placeholder
+-- Atomic anchored window rate limiting algorithm implementation for Redis
+-- Keys: KEYS[1] = bucketKey
+-- ARGV[1] = limit, ARGV[2] = windowMs, ARGV[3] = currentTimeMs
