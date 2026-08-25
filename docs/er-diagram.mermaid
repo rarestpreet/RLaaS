@@ -1,0 +1,58 @@
+erDiagram
+    CUSTOMER ||--o{ PROJECT : owns
+    CUSTOMER ||--o{ API_KEY : owns
+    PROJECT ||--o{ POLICY : has
+
+    CUSTOMER {
+        uuid id PK
+        string name
+        string email
+        string password
+        string status
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    PROJECT {
+        uuid id PK
+        uuid customerId FK
+        string name
+        string status
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    POLICY {
+        uuid id PK
+        uuid projectId FK
+        string name
+        string endpoint
+        string algorithmType "TOKEN_BUCKET or ANCHORED_WINDOW"
+        jsonb algorithmConfig
+        jsonb keyStrategy
+        string failMode "FAIL_OPEN or FAIL_CLOSED, used when Redis is down"
+        string status
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    API_KEY {
+        uuid id PK
+        uuid customerId FK
+        string prefix
+        string keyHash
+        string usage
+        string status
+        timestamp lastUsedAt
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    BUCKET {
+        string key PK "policyId + algorithmType + resolvedKey"
+        string algorithmType "TOKEN_BUCKET or ANCHORED_WINDOW"
+        jsonb state "tokens+lastRefillAt OR windowStart+count, per algo"
+        int ttl
+    }
+
+    POLICY ||--o{ BUCKET : "generates (runtime, Redis only)"
