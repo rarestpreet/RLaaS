@@ -1,4 +1,4 @@
-package com.project.limiter.algorithm;
+package com.project.limiter.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,5 +12,5 @@ import lombok.NoArgsConstructor;
 public class Decision {
     private boolean allowed;
     private long remaining;
-    private long retryAfterMs;
+    private long cooldownPeriod;
 }

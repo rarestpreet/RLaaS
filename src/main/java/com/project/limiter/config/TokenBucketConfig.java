@@ -11,6 +11,6 @@ import lombok.NoArgsConstructor;
 @Builder
 public final class TokenBucketConfig implements AlgorithmConfig {
     private long capacity;
-    private double refillRate;
+    private int refillRate;
     private long refillIntervalMs;
 }

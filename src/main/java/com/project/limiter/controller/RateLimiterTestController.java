@@ -1,7 +1,7 @@
 package com.project.limiter.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.project.limiter.algorithm.Decision;
+import com.project.limiter.dto.response.Decision;
 import com.project.limiter.algorithm.TokenBucketAlgorithm;
 import com.project.limiter.algorithm.AnchoredWindowAlgorithm;
 import com.project.limiter.dto.request.RateLimitTestRequest;
