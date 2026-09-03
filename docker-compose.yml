@@ -1,0 +1,76 @@
+services:
+  # =========================================================================
+  # PostgreSQL Service (Ephemeral Storage)
+  # =========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: rlaas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rlaas_db
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rlaas-network
+
+  # =========================================================================
+  # Redis Service (Ephemeral In-Memory Storage)
+  # =========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: rlaas-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rlaas-network
+
+  # =========================================================================
+  # Backend Spring Boot Application Service
+  # =========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rlaas-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      # Only override properties that must point to Docker service hostnames
+      DB_URL: jdbc:postgresql://postgres:5432/rlaas_db
+      REDIS_HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "http://localhost:8080/actuator/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rlaas-network
+
+# =============================================================================
+# Shared Bridge Network
+# =============================================================================
+networks:
+  rlaas-network:
+    name: rlaas-network
+    driver: bridge
