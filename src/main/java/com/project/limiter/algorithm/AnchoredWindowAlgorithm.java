@@ -7,17 +7,24 @@ import com.project.limiter.exception.RateLimitExceededException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.data.redis.serializer.RedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
+import java.util.Collections;
+import java.util.List;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public non-sealed class AnchoredWindowAlgorithm implements Algorithm {
 
-    private final RedisTemplate<String, String> redisTemplate;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final RedisScript<List> anchoredWindowScript;
+
+    private static final String KEY_PREFIX = "rate-limit:anchored:";
+    private static final StringRedisSerializer STRING_SERIALIZER = new StringRedisSerializer();
 
     @Override
     public Decision resolveRequest(String bucketKey, AlgorithmConfig config) {
@@ -25,37 +32,37 @@ public non-sealed class AnchoredWindowAlgorithm implements Algorithm {
             throw new IllegalArgumentException("Invalid config type for AnchoredWindowAlgorithm");
         }
 
-        log.info("Executing AnchoredWindowAlgorithm for key: {}, limit: {}", bucketKey, anchoredWindowConfig.getLimit());
-
-        // TODO: implement atomic Lua script for anchored window. Must
-        // check/create window start timestamp, increment count if within
-        // windowMs, reset if expired — all atomically in a single Redis
-        // round trip.
-
-        String bucketValue = redisTemplate.opsForValue().get(bucketKey);
-        int currentRequestCount = (bucketValue != null ? Integer.parseInt(bucketValue) : 0) + 1;
-
+        String redisKey = KEY_PREFIX + bucketKey;
         long limit = anchoredWindowConfig.getLimit();
-        long remaining;
+        long windowMs = anchoredWindowConfig.getWindowMs();
 
-        if (bucketValue == null) {
-            redisTemplate.opsForValue().set(bucketKey, String.valueOf(currentRequestCount), Duration.ofMinutes(1));
-            remaining = limit - 1;
-        } else {
-            if (currentRequestCount > limit) {
-                throw new RateLimitExceededException("The rate limited is exceeded for user %s, please try again after %d".formatted(bucketKey, redisTemplate.getExpire(bucketKey, TimeUnit.SECONDS)));
-            } else {
-                redisTemplate.opsForValue().increment(bucketKey);
-                remaining = limit - currentRequestCount;
-            }
+        List<?> result = redisTemplate.execute(
+                anchoredWindowScript,
+                STRING_SERIALIZER,
+                (RedisSerializer<List>) null,
+                Collections.singletonList(redisKey),
+                String.valueOf(limit),
+                String.valueOf(windowMs)
+        );
+
+        if (result == null || result.size() < 3) {
+            throw new IllegalStateException("Unexpected response from AnchoredWindow Redis script");
         }
-        log.info("Completed request, currentReq: {}, remainingReq: {}", currentRequestCount, remaining);
 
-        return Decision.builder()
-                .allowed(true)
+        boolean allowed = ((Number) result.get(0)).longValue() == 1L;
+        long remaining = ((Number) result.get(1)).longValue();
+        long cooldownPeriod = ((Number) result.get(2)).longValue();
+
+        Decision decision = Decision.builder()
+                .allowed(allowed)
                 .remaining(remaining)
-                .cooldownPeriod(0)
+                .cooldownPeriod(cooldownPeriod)
                 .build();
-    }
 
+        if (!decision.isAllowed()) {
+            throw new RateLimitExceededException("Rate limit exceeded for key " + bucketKey, decision);
+        }
+
+        return decision;
+    }
 }
