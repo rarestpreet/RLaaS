@@ -1,9 +1,12 @@
 package com.project.limiter.exception;
 
+import com.project.limiter.dto.response.Decision;
 import com.project.limiter.dto.response.ExceptionResponseDTO;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -90,6 +93,53 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .build();
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ExceptionResponseDTO> handleConstraintViolationException(ConstraintViolationException ex) {
+        log.warn("Constraint violation: {}", ex.getMessage());
+        List<List<String>> fieldErrors = ex.getConstraintViolations().stream()
+                .map(v -> List.of(v.getPropertyPath().toString(), v.getMessage()))
+                .toList();
+
+        ExceptionResponseDTO response = ExceptionResponseDTO.builder()
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Validation failed")
+                .message("Invalid input received")
+                .fieldErrors(fieldErrors)
+                .timestamp(LocalDateTime.now())
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ExceptionResponseDTO> handleRateLimitExceededException(RateLimitExceededException ex) {
+        log.warn("Rate limit exceeded: {}", ex.getMessage());
+
+        String message = ex.getMessage();
+        HttpHeaders headers = new HttpHeaders();
+
+        if (ex.getDecision() != null) {
+            Decision decision = ex.getDecision();
+            long cooldownMs = decision.getCooldownPeriod();
+            long retryAfterSeconds = (long) Math.ceil(cooldownMs / 1000.0);
+            if (retryAfterSeconds > 0) {
+                headers.set(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds));
+            }
+            message = "%s (cooldown: %d ms, remaining: %d)".formatted(
+                    ex.getMessage(),
+                    decision.getCooldownPeriod(),
+                    decision.getRemaining()
+            );
+        }
+
+        ExceptionResponseDTO response = ExceptionResponseDTO.builder()
+                .status(HttpStatus.TOO_MANY_REQUESTS.value())
+                .error("Too Many Requests")
+                .message(message)
+                .timestamp(LocalDateTime.now())
+                .build();
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).headers(headers).body(response);
     }
 
     @ExceptionHandler(Exception.class)
