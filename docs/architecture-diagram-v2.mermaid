@@ -1,0 +1,78 @@
+flowchart TD
+    Client[Customer Application]
+
+    subgraph API_Layer["API Layer"]
+        Gateway[API Gateway / Load Balancer]
+        AuthFilter["Auth Filter\n(validate API key, resolve customer+project)"]
+    end
+
+    subgraph Core["Rate Limiter Core Service"]
+        Controller["Decision Controller\nPOST /v1/check"]
+        PolicyResolver["Policy Resolver\n(load policy for project+endpoint)"]
+        KeyResolver["Key Resolver\n(apply keyStrategy -> build bucket key)"]
+        CircuitBreaker{"Redis Circuit Breaker\nCLOSED / OPEN / HALF_OPEN"}
+        AlgoEngine["Algorithm Engine"]
+        TokenBucket["Token Bucket\n(Lua script)"]
+        AnchoredWindow["Anchored Window\n(Lua script)"]
+        FailModeCheck{"Redis unreachable\ncheck policy.failMode"}
+        LocalDegraded["Local best-effort counter\n(per-instance, approximate,\nonly used if FAIL_OPEN)"]
+    end
+
+    subgraph HealthMonitor["Health Monitoring"]
+        Scheduler["Scheduler\npings Redis on interval"]
+    end
+
+    subgraph Config_Layer["Config / Management APIs"]
+        AccountAPI["Account Service\n(customer, project, policy, api-key CRUD)"]
+    end
+
+    subgraph Storage
+        Postgres[("PostgreSQL\nCustomer / Project / Policy / ApiKey")]
+        Redis[("Redis\nBuckets - atomic Lua ops")]
+        Cache["In-memory / local cache\n(policy config, short TTL)"]
+    end
+
+    subgraph Async["Async / Non-blocking Path"]
+        Queue["Message Queue\n(Kafka/RabbitMQ)"]
+        UsageWorker["Usage & Analytics Worker"]
+        NotifyWorker["Notification Worker"]
+        AnalyticsDB[("Analytics Store\ne.g. ClickHouse/Timescale")]
+    end
+
+    Client -->|"API key + request context"| Gateway
+    Gateway --> AuthFilter
+    AuthFilter -->|"validated"| Controller
+    AuthFilter -.->|"reject: invalid key"| Client
+
+    Controller --> PolicyResolver
+    PolicyResolver -->|"cache miss"| Postgres
+    PolicyResolver -->|"cache hit"| Cache
+    PolicyResolver --> KeyResolver
+    KeyResolver --> CircuitBreaker
+
+    CircuitBreaker -->|"CLOSED: Redis healthy"| AlgoEngine
+    AlgoEngine --> TokenBucket
+    AlgoEngine --> AnchoredWindow
+    TokenBucket --> Redis
+    AnchoredWindow --> Redis
+    Redis -->|"ALLOW/DENY/REJECT + remaining/retry"| Controller
+
+    CircuitBreaker -->|"OPEN: Redis down"| FailModeCheck
+    FailModeCheck -->|"FAIL_CLOSED"| DenyAll["Return DENY\n(no Redis dependency)"]
+    FailModeCheck -->|"FAIL_OPEN"| LocalDegraded
+    LocalDegraded -->|"ALLOW, best-effort\n(approximate, per-instance)"| Controller
+    DenyAll --> Controller
+
+    Scheduler -->|"health check"| Redis
+    Scheduler -->|"flips state on failure/recovery"| CircuitBreaker
+
+    Controller -->|"decision response"| Client
+
+    Controller -.->|"async event, non-blocking"| Queue
+    Queue --> UsageWorker
+    Queue --> NotifyWorker
+    UsageWorker --> AnalyticsDB
+    NotifyWorker -.-> Client
+
+    AccountAPI --> Postgres
+    Client -->|"manage account/projects/policies/keys"| AccountAPI
