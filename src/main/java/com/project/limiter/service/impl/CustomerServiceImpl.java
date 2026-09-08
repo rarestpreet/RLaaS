@@ -12,10 +12,10 @@ import com.project.limiter.model.enums.CustomerAccountStatus;
 import com.project.limiter.repository.CustomerRepository;
 import com.project.limiter.service.CustomerService;
 import com.project.limiter.service.EmailService;
-import com.project.limiter.utils.PasswordUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -30,8 +30,9 @@ public class CustomerServiceImpl implements CustomerService {
     private final CustomerRepository customerRepository;
     private final RedisTemplate<String, Object> redisTemplate;
     private final EmailService emailService;
+    private final PasswordEncoder passwordEncoder;
 
-    private static final Duration SESSION_TTL = Duration.ofHours(24);
+    private static final Duration SESSION_TTL = Duration.ofHours(4);
     private static final Duration OTP_TTL = Duration.ofMinutes(5);
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -42,7 +43,7 @@ public class CustomerServiceImpl implements CustomerService {
             throw new EmailAlreadyExistException("Email " + request.getEmail() + " is already registered");
         }
 
-        String hashedPassword = PasswordUtil.hashPassword(request.getPassword());
+        String hashedPassword = passwordEncoder.encode(request.getPassword());
         Customer customer = Customer.builder()
                 .name(request.getName())
                 .email(request.getEmail())
@@ -64,7 +65,7 @@ public class CustomerServiceImpl implements CustomerService {
             throw new BadCredentialsException("Account is terminated");
         }
 
-        if (!PasswordUtil.checkPassword(request.getPassword(), customer.getPassword())) {
+        if (!passwordEncoder.matches(request.getPassword(), customer.getPassword())) {
             throw new BadCredentialsException("Invalid email or password");
         }
 
@@ -112,7 +113,7 @@ public class CustomerServiceImpl implements CustomerService {
 
         redisTemplate.delete(otpKey);
 
-        String newHashedPassword = PasswordUtil.hashPassword(request.getNewPassword());
+        String newHashedPassword = passwordEncoder.encode(request.getNewPassword());
         customer.setPassword(newHashedPassword);
         customer.markUpdatedAt();
         customerRepository.save(customer);
@@ -146,6 +147,19 @@ public class CustomerServiceImpl implements CustomerService {
         customer.setStatus(CustomerAccountStatus.TERMINATED);
         customer.markUpdatedAt();
         customerRepository.save(customer);
+    }
+
+    @Override
+    public void logout(String token) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        if (token.startsWith("Bearer ")) {
+            token = token.substring(7).trim();
+        }
+        log.info("Logging out customer session for token: {}", token);
+        String sessionKey = "session:" + token;
+        redisTemplate.delete(sessionKey);
     }
 
     private CustomerResponse mapToCustomerResponse(Customer customer) {

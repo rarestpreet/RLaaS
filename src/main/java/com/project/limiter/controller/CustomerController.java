@@ -56,4 +56,13 @@ public class CustomerController {
         customerService.deleteCustomer(id);
         return ResponseEntity.ok("Customer account terminated successfully");
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<String> logout(@RequestHeader(value = org.springframework.http.HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
+        if (authHeader != null && !authHeader.isBlank()) {
+            customerService.logout(authHeader);
+        }
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        return ResponseEntity.ok("Customer logged out successfully");
+    }
 }

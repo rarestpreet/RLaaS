@@ -20,4 +20,5 @@ public interface CustomerService {
 
     void deleteCustomer(UUID id);
 
+    void logout(String token);
 }
