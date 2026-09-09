@@ -49,6 +49,10 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
+                                "/auth/register",
+                                "/auth/login",
+                                "/auth/password-otp-generate",
+                                "/auth/password-reset",
                                 "/customers/register",
                                 "/customers/login",
                                 "/customers/password-otp-generate",
