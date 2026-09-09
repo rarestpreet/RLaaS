@@ -1,13 +1,14 @@
 package com.project.limiter.controller;
 
-import com.project.limiter.dto.request.*;
+import com.project.limiter.dto.request.UpdateCustomerRequest;
 import com.project.limiter.dto.response.CustomerResponse;
-import com.project.limiter.dto.response.LoginResponse;
+import com.project.limiter.exception.ResourceNotFoundException;
+import com.project.limiter.security.CustomerUserDetails;
 import com.project.limiter.service.CustomerService;
-import lombok.RequiredArgsConstructor;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -19,50 +20,55 @@ public class CustomerController {
 
     private final CustomerService customerService;
 
-    @PostMapping("/register")
-    public ResponseEntity<CustomerResponse> register(@Valid @RequestBody RegisterRequest request) {
-        CustomerResponse response = customerService.register(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    /**
+     * Get the authenticated customer's profile.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<CustomerResponse> getCurrentCustomer(
+            @AuthenticationPrincipal CustomerUserDetails principal) {
+        UUID customerId = principal.getCustomer().getId();
+        return ResponseEntity.ok(customerService.getCustomerProfile(customerId));
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        LoginResponse response = customerService.login(request);
-        return ResponseEntity.ok(response);
+    /**
+     * Get customer profile by ID (scoped to ensure customer A cannot view customer B).
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<CustomerResponse> getCustomerById(
+            @AuthenticationPrincipal CustomerUserDetails principal,
+            @PathVariable UUID id) {
+        validateCustomerOwnership(principal, id);
+        return ResponseEntity.ok(customerService.getCustomerProfile(id));
     }
 
-    @PostMapping("/password-otp-generate")
-    public ResponseEntity<String> generatePasswordOtp(@Valid @RequestBody OtpRequestDto request) {
-        customerService.generatePasswordOtp(request);
-        return ResponseEntity.ok("OTP sent successfully to email");
-    }
-
-    @PostMapping("/password-reset")
-    public ResponseEntity<String> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
-        customerService.resetPassword(request);
-        return ResponseEntity.ok("Password reset successfully");
-    }
-
+    /**
+     * Update customer profile (scoped to ensure customer A cannot modify customer B).
+     */
     @PutMapping("/{id}")
     public ResponseEntity<CustomerResponse> updateCustomer(
+            @AuthenticationPrincipal CustomerUserDetails principal,
             @PathVariable UUID id,
             @Valid @RequestBody UpdateCustomerRequest request) {
+        validateCustomerOwnership(principal, id);
         CustomerResponse response = customerService.updateCustomer(id, request);
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Terminate customer account (scoped to ensure customer A cannot delete customer B).
+     */
     @DeleteMapping("/{id}")
-    public ResponseEntity<String> deleteCustomer(@PathVariable UUID id) {
+    public ResponseEntity<String> deleteCustomer(
+            @AuthenticationPrincipal CustomerUserDetails principal,
+            @PathVariable UUID id) {
+        validateCustomerOwnership(principal, id);
         customerService.deleteCustomer(id);
         return ResponseEntity.ok("Customer account terminated successfully");
     }
 
-    @PostMapping("/logout")
-    public ResponseEntity<String> logout(@RequestHeader(value = org.springframework.http.HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
-        if (authHeader != null && !authHeader.isBlank()) {
-            customerService.logout(authHeader);
+    private void validateCustomerOwnership(CustomerUserDetails principal, UUID requestedId) {
+        if (principal == null || !principal.getCustomer().getId().equals(requestedId)) {
+            throw new ResourceNotFoundException("Customer not found with ID: " + requestedId);
         }
-        org.springframework.security.core.context.SecurityContextHolder.clearContext();
-        return ResponseEntity.ok("Customer logged out successfully");
     }
 }
