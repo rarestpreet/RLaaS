@@ -25,5 +25,9 @@ public interface PolicyRepository extends JpaRepository<Policy, UUID> {
     boolean existsByProjectIdAndEndpoint(UUID projectId, String endpoint);
 
     boolean existsByProjectIdAndEndpointAndIdNot(UUID projectId, String endpoint, UUID id);
+
+    Optional<Policy> findByProjectIdAndEndpointAndStatus(UUID projectId, String endpoint, com.project.limiter.model.enums.PolicyStatus status);
+
+    List<Policy> findByProjectCustomerIdAndEndpointAndStatus(UUID customerId, String endpoint, com.project.limiter.model.enums.PolicyStatus status);
 }
 
