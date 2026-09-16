@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { testRateLimitDirect } from '../../api/gateway';
-import { DecisionResult, TestRateLimitRequest } from '../../types/gateway';
+import { testRateLimitDirect, trialRateLimitCheck } from '../../api/gateway';
+import { DecisionResult, TestRateLimitRequest, TrialRateLimitRequest } from '../../types/gateway';
+import { useAuth } from '../../context/AuthContext';
 import { 
   Play, 
   Zap, 
@@ -9,11 +10,19 @@ import {
   CheckCircle, 
   XCircle, 
   Clock, 
-  Shield, 
-  Cpu 
+  Cpu,
+  Key,
+  Globe,
+  Sparkles,
+  Lock,
+  Unlock
 } from 'lucide-react';
 
 export const QuickTestBench: React.FC = () => {
+  const { isAuthenticated, customer } = useAuth();
+  const [testMode, setTestMode] = useState<'free' | 'trial'>('free');
+  const [trialApiKey, setTrialApiKey] = useState<string>('');
+  
   const [algorithmType, setAlgorithmType] = useState<'TOKEN_BUCKET' | 'ANCHORED_WINDOW'>('TOKEN_BUCKET');
   const [bucketKey, setBucketKey] = useState<string>('test:dev:user_42');
   const [capacity, setCapacity] = useState<number>(5);
@@ -25,40 +34,29 @@ export const QuickTestBench: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [lastResult, setLastResult] = useState<DecisionResult | null>(null);
   const [eventHistory, setEventHistory] = useState<DecisionResult[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleTestSingle = async () => {
-    setIsLoading(true);
-
-    const payload: TestRateLimitRequest = {
-      bucketKey,
-      algorithmType,
-      config: algorithmType === 'TOKEN_BUCKET'
-        ? {
-            capacity: Number(capacity),
-            refillRate: Number(refillRate),
-            refillIntervalMs: Number(refillIntervalMs),
-            ttlMs: 60000,
-          }
-        : {
-            limit: Number(windowLimit),
-            windowMs: Number(windowMs),
-          },
-    };
-
-    try {
-      const result = await testRateLimitDirect(payload);
-      setLastResult(result);
-      setEventHistory(prev => [result, ...prev.slice(0, 9)]);
-    } catch {
-      // Fallback
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleBurstTest = async () => {
-    setIsLoading(true);
-    for (let i = 0; i < 5; i++) {
+  const executeRateLimitCall = async (): Promise<DecisionResult> => {
+    if (testMode === 'trial') {
+      const payload: TrialRateLimitRequest = {
+        bucketKey,
+        algorithmType,
+        ...(algorithmType === 'TOKEN_BUCKET'
+          ? {
+              capacity: Number(capacity),
+              refillRate: Number(refillRate),
+              refillIntervalMs: Number(refillIntervalMs),
+              ttlMs: 60000,
+            }
+          : {
+              limit: Number(windowLimit),
+              windowMs: Number(windowMs),
+            }),
+      };
+      return await trialRateLimitCheck(payload, {
+        apiKey: trialApiKey.trim() || undefined,
+      });
+    } else {
       const payload: TestRateLimitRequest = {
         bucketKey,
         algorithmType,
@@ -74,10 +72,38 @@ export const QuickTestBench: React.FC = () => {
               windowMs: Number(windowMs),
             },
       };
+      return await testRateLimitDirect(payload);
+    }
+  };
 
-      const result = await testRateLimitDirect(payload);
+  const handleTestSingle = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const result = await executeRateLimitCall();
       setLastResult(result);
-      setEventHistory(prev => [result, ...prev.slice(0, 14)]);
+      setEventHistory(prev => [result, ...prev.slice(0, 9)]);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Request failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBurstTest = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    for (let i = 0; i < 5; i++) {
+      try {
+        const result = await executeRateLimitCall();
+        setLastResult(result);
+        setEventHistory(prev => [result, ...prev.slice(0, 14)]);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Burst request failed');
+        break;
+      }
       // Brief stagger
       await new Promise(r => setTimeout(r, 80));
     }
@@ -86,32 +112,17 @@ export const QuickTestBench: React.FC = () => {
 
   const handleConcurrentTest = async () => {
     setIsLoading(true);
-    const payload: TestRateLimitRequest = {
-      bucketKey,
-      algorithmType,
-      config: algorithmType === 'TOKEN_BUCKET'
-        ? {
-            capacity: Number(capacity),
-            refillRate: Number(refillRate),
-            refillIntervalMs: Number(refillIntervalMs),
-            ttlMs: 60000,
-          }
-        : {
-            limit: Number(windowLimit),
-            windowMs: Number(windowMs),
-          },
-    };
+    setErrorMessage(null);
 
     try {
-      // Fire 5 requests in parallel simultaneously
-      const promises = Array.from({ length: 5 }, () => testRateLimitDirect(payload));
+      const promises = Array.from({ length: 5 }, () => executeRateLimitCall());
       const results = await Promise.all(promises);
       if (results.length > 0) {
         setLastResult(results[results.length - 1]);
         setEventHistory(prev => [...results.reverse(), ...prev].slice(0, 15));
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Concurrent request failed');
     } finally {
       setIsLoading(false);
     }
@@ -121,24 +132,104 @@ export const QuickTestBench: React.FC = () => {
     const newRandomId = Math.floor(1000 + Math.random() * 9000);
     setBucketKey(`test:dev:user_${newRandomId}`);
     setLastResult(null);
+    setErrorMessage(null);
   };
 
   return (
     <section id="quick-test-section" className="w-full py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
       <div className="flex flex-col gap-3 mb-8">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="px-2 py-0.5 rounded text-[11px] font-mono uppercase tracking-wider bg-[#1f1f21] text-[#fb923c] font-semibold border border-white/[0.08]">
             Interactive Test Console
           </span>
-          <span className="text-xs font-mono text-[#a1a1aa]">Direct Redis Lua Evaluation</span>
+          <span className="text-xs font-mono text-[#a1a1aa]">
+            {testMode === 'free' ? 'Public Free Demo (IP-Scoped)' : 'Trial Sandbox (Auth Token / API Key)'}
+          </span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#fafafa]">
-          Quick Test Rate Limiter Decision Engine
+          Rate Limiter Testing Engine
         </h2>
         <p className="text-sm text-[#a1a1aa] max-w-3xl">
-          Test algorithm execution in real time against the backend <code className="text-[#fb923c] bg-[#18181b] px-1.5 py-0.5 rounded text-xs">POST /test/rate-limit/check</code> endpoint. No authentication required.
+          {testMode === 'free' ? (
+            <>
+              Testing against public <code className="text-[#fb923c] bg-[#18181b] px-1.5 py-0.5 rounded text-xs">POST /test/rate-limit/check</code>. No authentication required (visitor IP scoped with safe boundaries).
+            </>
+          ) : (
+            <>
+              Testing against trial <code className="text-[#fb923c] bg-[#18181b] px-1.5 py-0.5 rounded text-xs">POST /v1/trial/check</code>. Dual authentication via <code className="text-[#4edea3] bg-[#18181b] px-1 py-0.5 rounded text-xs">Authorization: Bearer</code> or <code className="text-[#fb923c] bg-[#18181b] px-1 py-0.5 rounded text-xs">X-API-Key</code>.
+            </>
+          )}
         </p>
+
+        {/* Mode Selector Tabs */}
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => { setTestMode('free'); setErrorMessage(null); }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all ${
+              testMode === 'free'
+                ? 'bg-[#f97316] text-[#09090b] font-semibold shadow-[0_0_12px_rgba(249,115,22,0.3)]'
+                : 'bg-[#18181b] text-[#a1a1aa] hover:text-[#fafafa] border border-white/[0.08]'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Quick Free Test (Guest)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setTestMode('trial'); setErrorMessage(null); }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all ${
+              testMode === 'trial'
+                ? 'bg-[#f97316] text-[#09090b] font-semibold shadow-[0_0_12px_rgba(249,115,22,0.3)]'
+                : 'bg-[#18181b] text-[#a1a1aa] hover:text-[#fafafa] border border-white/[0.08]'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Trial Test (Auth Token / API Key)</span>
+          </button>
+        </div>
       </div>
+
+      {/* Trial Mode Authentication Banner */}
+      {testMode === 'trial' && (
+        <div className="mb-6 p-4 rounded-xl bg-[#131315] border border-white/[0.08] flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${isAuthenticated ? 'bg-[#4edea3]/15 text-[#4edea3]' : 'bg-[#fb923c]/15 text-[#fb923c]'}`}>
+              {isAuthenticated ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-[#fafafa]">
+                {isAuthenticated
+                  ? `Authenticated Session Active: ${customer?.email || 'Customer'}`
+                  : 'Trial Credentials Required'}
+              </p>
+              <p className="text-[11px] text-[#a1a1aa]">
+                {isAuthenticated
+                  ? 'Your session auth token is automatically attached. Or provide an X-API-Key below to test API key auth.'
+                  : 'Enter an active API key below, or sign in to use your session token automatically.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 min-w-[280px]">
+            <Key className="w-4 h-4 text-[#a1a1aa] flex-shrink-0" />
+            <input
+              type="text"
+              placeholder={isAuthenticated ? "Optional X-API-Key override" : "Enter X-API-Key (e.g. rlaas_...)"}
+              value={trialApiKey}
+              onChange={e => setTrialApiKey(e.target.value)}
+              className="w-full px-3 py-1.5 rounded-lg bg-[#18181b] border border-white/[0.1] text-xs font-mono text-[#fafafa] focus:outline-none focus:border-[#f97316] placeholder-[#71717a]"
+            />
+          </div>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="mb-6 p-3 rounded-lg bg-[#f43f5e]/15 border border-[#f43f5e]/30 text-xs text-[#f43f5e] font-mono">
+          {errorMessage}
+        </div>
+      )}
 
       {/* Main Grid: Parameters on Left, Live Telemetry Output on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -203,33 +294,42 @@ export const QuickTestBench: React.FC = () => {
           {algorithmType === 'TOKEN_BUCKET' ? (
             <div className="grid grid-cols-3 gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[#a1a1aa]">Capacity</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-medium text-[#a1a1aa]">Capacity</label>
+                  <span className="text-[10px] text-[#71717a]">{testMode === 'free' ? '1-200' : '1-1000'}</span>
+                </div>
                 <input
                   type="number"
                   min="1"
-                  max="1000"
+                  max={testMode === 'free' ? 200 : 1000}
                   value={capacity}
                   onChange={e => setCapacity(parseInt(e.target.value) || 1)}
                   className="px-2.5 py-1.5 rounded-lg bg-[#131315] border border-white/[0.1] text-xs font-mono text-[#fafafa] focus:outline-none focus:border-[#f97316]"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[#a1a1aa]">Refill Rate</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-medium text-[#a1a1aa]">Refill Rate</label>
+                  <span className="text-[10px] text-[#71717a]">{testMode === 'free' ? '1-50' : '1-500'}</span>
+                </div>
                 <input
                   type="number"
                   min="1"
-                  max="500"
+                  max={testMode === 'free' ? 50 : 500}
                   value={refillRate}
                   onChange={e => setRefillRate(parseInt(e.target.value) || 1)}
                   className="px-2.5 py-1.5 rounded-lg bg-[#131315] border border-white/[0.1] text-xs font-mono text-[#fafafa] focus:outline-none focus:border-[#f97316]"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[#a1a1aa]">Interval (ms)</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-medium text-[#a1a1aa]">Interval (ms)</label>
+                  <span className="text-[10px] text-[#71717a]">{testMode === 'free' ? '500+' : '100+'}</span>
+                </div>
                 <input
                   type="number"
                   step="100"
-                  min="100"
+                  min={testMode === 'free' ? 500 : 100}
                   value={refillIntervalMs}
                   onChange={e => setRefillIntervalMs(parseInt(e.target.value) || 1000)}
                   className="px-2.5 py-1.5 rounded-lg bg-[#131315] border border-white/[0.1] text-xs font-mono text-[#fafafa] focus:outline-none focus:border-[#f97316]"
@@ -239,22 +339,29 @@ export const QuickTestBench: React.FC = () => {
           ) : (
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[#a1a1aa]">Window Limit</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-medium text-[#a1a1aa]">Window Limit</label>
+                  <span className="text-[10px] text-[#71717a]">{testMode === 'free' ? '1-500' : '1-10000'}</span>
+                </div>
                 <input
                   type="number"
                   min="1"
-                  max="10000"
+                  max={testMode === 'free' ? 500 : 10000}
                   value={windowLimit}
                   onChange={e => setWindowLimit(parseInt(e.target.value) || 1)}
                   className="px-2.5 py-1.5 rounded-lg bg-[#131315] border border-white/[0.1] text-xs font-mono text-[#fafafa] focus:outline-none focus:border-[#f97316]"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[#a1a1aa]">Window (ms)</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-medium text-[#a1a1aa]">Window (ms)</label>
+                  <span className="text-[10px] text-[#71717a]">{testMode === 'free' ? '1s-5m' : '1s-1h'}</span>
+                </div>
                 <input
                   type="number"
                   step="1000"
                   min="1000"
+                  max={testMode === 'free' ? 300000 : 3600000}
                   value={windowMs}
                   onChange={e => setWindowMs(parseInt(e.target.value) || 60000)}
                   className="px-2.5 py-1.5 rounded-lg bg-[#131315] border border-white/[0.1] text-xs font-mono text-[#fafafa] focus:outline-none focus:border-[#f97316]"
@@ -357,7 +464,7 @@ export const QuickTestBench: React.FC = () => {
             ) : (
               <div className="py-8 flex flex-col items-center justify-center text-center text-[#71717a]">
                 <Clock className="w-8 h-8 mb-2 opacity-50 text-[#a1a1aa]" />
-                <span className="text-xs font-mono">No request sent yet. Click "Fire 1 Request" to evaluate!</span>
+                <span className="text-xs font-mono">No request sent yet. Click "1 Request" to evaluate!</span>
               </div>
             )}
           </div>
