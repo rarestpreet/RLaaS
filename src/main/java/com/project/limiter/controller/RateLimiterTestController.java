@@ -1,14 +1,9 @@
 package com.project.limiter.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.project.limiter.dto.response.Decision;
-import com.project.limiter.algorithm.TokenBucketAlgorithm;
-import com.project.limiter.algorithm.AnchoredWindowAlgorithm;
 import com.project.limiter.dto.request.RateLimitTestRequest;
-import com.project.limiter.config.AlgorithmConfig;
-import com.project.limiter.config.AnchoredWindowConfig;
-import com.project.limiter.config.TokenBucketConfig;
-import com.project.limiter.model.enums.AlgorithmType;
+import com.project.limiter.dto.response.Decision;
+import com.project.limiter.service.RateLimiterTestService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -22,28 +17,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class RateLimiterTestController {
 
-    private final TokenBucketAlgorithm tokenBucketAlgorithm;
-    private final AnchoredWindowAlgorithm anchoredWindowAlgorithm;
-    private final ObjectMapper objectMapper;
+    private final RateLimiterTestService rateLimiterTestService;
 
     @PostMapping("/check")
-    public ResponseEntity<Decision> checkRateLimit(@Valid @RequestBody RateLimitTestRequest request) {
-        AlgorithmType type = AlgorithmType.valueOf(request.getAlgorithmType().toUpperCase());
-        AlgorithmConfig config;
+    public ResponseEntity<Decision> checkRateLimit(
+            @Valid @RequestBody RateLimitTestRequest request,
+            HttpServletRequest servletRequest) {
 
-        switch (type) {
-            case TOKEN_BUCKET -> config = objectMapper.convertValue(request.getConfig(), TokenBucketConfig.class);
-            case ANCHORED_WINDOW -> config = objectMapper.convertValue(request.getConfig(), AnchoredWindowConfig.class);
-            default -> throw new IllegalArgumentException("Unsupported algorithm type: " + request.getAlgorithmType());
-        }
-
-        Decision decision;
-        if (type == AlgorithmType.TOKEN_BUCKET) {
-            decision = tokenBucketAlgorithm.resolveRequest(request.getBucketKey(), config);
-        } else {
-            decision = anchoredWindowAlgorithm.resolveRequest(request.getBucketKey(), config);
-        }
-
+        String clientIp = extractClientIp(servletRequest);
+        Decision decision = rateLimiterTestService.checkFreeRateLimit(request, clientIp);
         return ResponseEntity.ok(decision);
+    }
+
+    private String extractClientIp(HttpServletRequest request) {
+        String xfHeader = request.getHeader("X-Forwarded-For");
+        if (xfHeader == null || xfHeader.isBlank()) {
+            return request.getRemoteAddr() != null ? request.getRemoteAddr() : "anonymous";
+        }
+        return xfHeader.split(",")[0].trim();
     }
 }
