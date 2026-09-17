@@ -2,6 +2,7 @@ export interface TestRateLimitRequest {
   bucketKey: string;
   algorithmType: 'TOKEN_BUCKET' | 'ANCHORED_WINDOW';
   config: Record<string, unknown>;
+  failMode?: 'FAIL_CLOSED' | 'FAIL_OPEN';
 }
 
 export interface TrialRateLimitRequest {
@@ -14,6 +15,7 @@ export interface TrialRateLimitRequest {
   limit?: number;
   windowMs?: number;
   cost?: number;
+  failMode?: 'FAIL_CLOSED' | 'FAIL_OPEN';
 }
 
 export interface DecisionResult {

@@ -1,6 +1,7 @@
 package com.project.limiter.dto.request;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.project.limiter.model.enums.FailMode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -22,4 +23,6 @@ public class RateLimitTestRequest {
 
     @NotNull(message = "config object is required")
     private JsonNode config;
+
+    private FailMode failMode;
 }

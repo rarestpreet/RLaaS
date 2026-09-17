@@ -3,9 +3,10 @@ package com.project.limiter;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-import java.sql.Time;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import java.util.TimeZone;
 
+@EnableScheduling
 @SpringBootApplication
 public class RLaaSApplication {
 

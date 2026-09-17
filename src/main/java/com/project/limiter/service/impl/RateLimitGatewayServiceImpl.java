@@ -16,10 +16,12 @@ import com.project.limiter.model.Policy;
 import com.project.limiter.model.enums.AlgorithmType;
 import com.project.limiter.model.enums.FailMode;
 import com.project.limiter.model.enums.PolicyStatus;
+import com.project.limiter.model.enums.ServiceName;
 import com.project.limiter.model.strategy.RateLimitContext;
 import com.project.limiter.repository.PolicyRepository;
 import com.project.limiter.service.ApiKeyService;
 import com.project.limiter.service.RateLimitGatewayService;
+import com.project.limiter.service.ServiceHealthRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,6 +39,7 @@ public class RateLimitGatewayServiceImpl implements RateLimitGatewayService {
     private final PolicyRepository policyRepository;
     private final TokenBucketAlgorithm tokenBucketAlgorithm;
     private final AnchoredWindowAlgorithm anchoredWindowAlgorithm;
+    private final ServiceHealthRegistry serviceHealthRegistry;
 
     @Override
     @Transactional
@@ -63,6 +66,13 @@ public class RateLimitGatewayServiceImpl implements RateLimitGatewayService {
         String bucketKey = policy.getId() + ":" + targetKey;
         long limit = getLimit(policy);
 
+        // Check health registry before invoking Redis
+        if (!serviceHealthRegistry.isServiceUp(ServiceName.REDIS)) {
+            log.warn("Redis is DOWN in ServiceHealthRegistry. Fast-failing with policy failMode: {}",
+                    policy.getFailMode());
+            return handleRedisFailure(policy, limit);
+        }
+
         // 4. Execute Algorithm with Circuit Breaker / FailMode fallback
         Decision decision;
         try {
@@ -79,7 +89,10 @@ public class RateLimitGatewayServiceImpl implements RateLimitGatewayService {
                 decision = Decision.builder().allowed(false).remaining(0L).cooldownPeriod(1000L).build();
             }
         } catch (Exception ex) {
-            log.error("Redis error while evaluating rate limit for bucketKey: {}. Applying failMode: {}", bucketKey, policy.getFailMode(), ex);
+            log.error(
+                    "Redis error while evaluating rate limit for bucketKey: {}. Marking REDIS down. Applying failMode: {}",
+                    bucketKey, policy.getFailMode(), ex);
+            serviceHealthRegistry.recordFailure(ServiceName.REDIS, ex.getMessage());
             return handleRedisFailure(policy, limit);
         }
 
@@ -114,11 +127,13 @@ public class RateLimitGatewayServiceImpl implements RateLimitGatewayService {
             Policy policy = policyRepository.findByProjectIdAndEndpointAndStatus(
                     request.getProjectId(), request.getEndpoint(), PolicyStatus.ACTIVE)
                     .orElseThrow(() -> new ResourceNotFoundException(
-                            "No active rate limit policy found for endpoint '" + request.getEndpoint() + "' in project ID: " + request.getProjectId()));
+                            "No active rate limit policy found for endpoint '" + request.getEndpoint()
+                                    + "' in project ID: " + request.getProjectId()));
 
             if (!policy.getProject().getCustomer().getId().equals(apiKey.getCustomer().getId())) {
                 throw new ResourceNotFoundException(
-                        "No active rate limit policy found for endpoint '" + request.getEndpoint() + "' in project ID: " + request.getProjectId());
+                        "No active rate limit policy found for endpoint '" + request.getEndpoint() + "' in project ID: "
+                                + request.getProjectId());
             }
             return policy;
         }
@@ -127,12 +142,14 @@ public class RateLimitGatewayServiceImpl implements RateLimitGatewayService {
                 apiKey.getCustomer().getId(), request.getEndpoint(), PolicyStatus.ACTIVE);
 
         if (policies.isEmpty()) {
-            throw new ResourceNotFoundException("No active rate limit policy configured for endpoint: " + request.getEndpoint());
+            throw new ResourceNotFoundException(
+                    "No active rate limit policy configured for endpoint: " + request.getEndpoint());
         }
 
         if (policies.size() > 1) {
             throw new IllegalArgumentException(
-                    "Multiple projects define endpoint '" + request.getEndpoint() + "'. Please specify 'projectId' in request.");
+                    "Multiple projects define endpoint '" + request.getEndpoint()
+                            + "'. Please specify 'projectId' in request.");
         }
 
         return policies.get(0);

@@ -24,6 +24,9 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      timeout: 250ms
+      lettuce:
+        shutdown-timeout: 100ms
 
   mail:
     host: smtp.gmail.com

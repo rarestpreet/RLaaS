@@ -10,7 +10,10 @@ import com.project.limiter.dto.request.RateLimitTestRequest;
 import com.project.limiter.dto.response.Decision;
 import com.project.limiter.exception.RateLimitExceededException;
 import com.project.limiter.model.enums.AlgorithmType;
+import com.project.limiter.model.enums.FailMode;
+import com.project.limiter.model.enums.ServiceName;
 import com.project.limiter.service.RateLimiterTestService;
+import com.project.limiter.service.ServiceHealthRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,6 +26,7 @@ public class RateLimiterTestServiceImpl implements RateLimiterTestService {
     private final TokenBucketAlgorithm tokenBucketAlgorithm;
     private final AnchoredWindowAlgorithm anchoredWindowAlgorithm;
     private final ObjectMapper objectMapper;
+    private final ServiceHealthRegistry serviceHealthRegistry;
 
     // Conservative server-enforced limits for public/free unauthenticated tests
     private static final long FREE_MAX_CAPACITY = 200L;
@@ -35,6 +39,16 @@ public class RateLimiterTestServiceImpl implements RateLimiterTestService {
 
     @Override
     public Decision checkFreeRateLimit(RateLimitTestRequest request, String clientIp) {
+        // Fast-fail health check before calling Redis
+        FailMode failMode = request.getFailMode() != null
+                ? request.getFailMode()
+                : FailMode.FAIL_CLOSED;
+
+        if (!serviceHealthRegistry.isServiceUp(ServiceName.REDIS)) {
+            log.warn("Redis is DOWN in ServiceHealthRegistry. Applying fail-safe mode: {}", failMode);
+            return executeFailSafe(failMode);
+        }
+
         AlgorithmType type = AlgorithmType.valueOf(request.getAlgorithmType().toUpperCase());
         AlgorithmConfig config;
 
@@ -77,7 +91,7 @@ public class RateLimiterTestServiceImpl implements RateLimiterTestService {
             default -> throw new IllegalArgumentException("Unsupported algorithm type: " + request.getAlgorithmType());
         }
 
-        Decision decision;
+        Decision decision = null;
         try {
             if (type == AlgorithmType.TOKEN_BUCKET) {
                 decision = tokenBucketAlgorithm.resolveRequest(isolatedBucketKey, config);
@@ -89,8 +103,28 @@ public class RateLimiterTestServiceImpl implements RateLimiterTestService {
             if (decision == null) {
                 decision = Decision.builder().allowed(false).remaining(0L).cooldownPeriod(1000L).build();
             }
+        } catch (Exception ex) {
+            log.error("Redis failure during free rate limit check. Marking REDIS down: {}", ex.getMessage());
+            serviceHealthRegistry.recordFailure(ServiceName.REDIS, ex.getMessage());
+            return executeFailSafe(failMode);
         }
 
         return decision;
+    }
+
+    private Decision executeFailSafe(FailMode failMode) {
+        if (failMode == FailMode.FAIL_OPEN) {
+            return Decision.builder()
+                    .allowed(true)
+                    .remaining(1L)
+                    .cooldownPeriod(0L)
+                    .build();
+        } else {
+            return Decision.builder()
+                    .allowed(false)
+                    .remaining(0L)
+                    .cooldownPeriod(10000L)
+                    .build();
+        }
     }
 }

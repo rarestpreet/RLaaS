@@ -1,5 +1,6 @@
 package com.project.limiter.dto.request;
 
+import com.project.limiter.model.enums.FailMode;
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -30,4 +31,7 @@ public class TrialCheckRequest {
 
     // Optional cost per request (defaults to 1)
     private Long cost;
+
+    // User-decided fail safe mode
+    private FailMode failMode;
 }

@@ -62,7 +62,7 @@ const MainContent: React.FC = () => {
               onNavigateKeys={() => handleNavigate('keys')}
               onOpenAuth={() => handleOpenAuth('login')}
             />
-            <QuickTestBench />
+            <QuickTestBench onOpenAuth={handleOpenAuth} />
             <FeatureCards />
           </>
         )}

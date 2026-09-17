@@ -15,6 +15,8 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.project.limiter.model.enums.ServiceName;
+import com.project.limiter.service.ServiceHealthRegistry;
 import java.io.IOException;
 import java.util.UUID;
 
@@ -25,6 +27,7 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final CustomerUserDetailsService userDetailsService;
+    private final ServiceHealthRegistry serviceHealthRegistry;
 
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String SESSION_KEY_PREFIX = "session:";
@@ -42,6 +45,12 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(BEARER_PREFIX.length()).trim();
         if (token.isEmpty()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        if (!serviceHealthRegistry.isServiceUp(ServiceName.REDIS)) {
+            log.warn("Redis is reported DOWN; bypassing session store lookup to maintain low latency");
             filterChain.doFilter(request, response);
             return;
         }
@@ -68,7 +77,7 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
             }
         } catch (Exception ex) {
             log.error("Could not authenticate session token in SecurityContext: {}", ex.getMessage());
-
+            serviceHealthRegistry.recordFailure(ServiceName.REDIS, ex.getMessage());
             SecurityContextHolder.clearContext();
         }
 
