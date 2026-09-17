@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Getter
 @Builder
@@ -13,7 +14,9 @@ import java.time.Instant;
 @AllArgsConstructor
 public class ApiKeyCreatedResponse {
 
+    private UUID id;
     private String name;
     private String rawKey;
+    private String prefix;
     private Instant expiresAt;
 }

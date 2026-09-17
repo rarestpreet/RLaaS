@@ -4,11 +4,13 @@ import com.project.limiter.model.enums.ApiKeyStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "api_keys")
+@SQLRestriction("status <> 'TERMINATED'")
 @Getter
 @Setter
 @NoArgsConstructor

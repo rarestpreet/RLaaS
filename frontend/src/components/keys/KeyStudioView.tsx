@@ -30,7 +30,7 @@ export const KeyStudioView: React.FC = () => {
     setError(null);
     try {
       const data = await fetchApiKeys();
-      setKeys(data);
+      setKeys(Array.isArray(data) ? data.filter(k => k.status !== 'TERMINATED') : []);
     } catch (err: any) {
       setError(err.message || 'Failed to load API keys');
     } finally {
@@ -215,7 +215,7 @@ export const KeyStudioView: React.FC = () => {
                       <div className="flex flex-col">
                         <span className="font-semibold text-sm text-[#fafafa]">{key.name}</span>
                         <code className="text-xs font-mono text-[#fb923c] mt-0.5">
-                          {key.keyPrefix}••••••••••••
+                          {key.keyPrefix || key.prefix || (key.id ? `rlaas_${key.id.slice(0, 8)}` : 'rlaas_')}••••••••••••
                         </code>
                       </div>
                     </td>
@@ -240,11 +240,11 @@ export const KeyStudioView: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4 font-mono text-[#fafafa]">
-                      {key.usageCount.toLocaleString()} calls
+                      {((key.usageCount ?? key.usage) || 0).toLocaleString()} calls
                     </td>
 
                     <td className="py-3.5 px-4 font-mono text-[#a1a1aa]">
-                      {new Date(key.createdAt).toLocaleDateString()}
+                      {key.createdAt ? new Date(key.createdAt).toLocaleDateString() : '—'}
                     </td>
 
                     <td className="py-3.5 px-4 font-mono">

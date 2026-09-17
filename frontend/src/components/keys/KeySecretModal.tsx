@@ -34,7 +34,9 @@ export const KeySecretModal: React.FC<KeySecretModalProps> = ({ keyData, onClose
             </div>
             <div className="flex flex-col">
               <h3 className="text-base font-bold text-[#fafafa]">API Key Generated Successfully</h3>
-              <span className="text-xs text-[#a1a1aa] font-mono">ID: {keyData.id.slice(0, 12)}...</span>
+              <span className="text-xs text-[#a1a1aa] font-mono">
+                ID: {keyData.id ? keyData.id.slice(0, 12) : (keyData.prefix || keyData.name || 'Key')}...
+              </span>
             </div>
           </div>
           <button

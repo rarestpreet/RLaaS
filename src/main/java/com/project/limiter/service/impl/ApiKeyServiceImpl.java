@@ -71,13 +71,15 @@ public class ApiKeyServiceImpl implements ApiKeyService {
                 .usage(0L)
                 .build();
 
-        apiKeyRepository.save(apiKey);
+        ApiKey saved = apiKeyRepository.save(apiKey);
         log.info("API key created with prefix: {}", publicPrefix);
 
         return ApiKeyCreatedResponse.builder()
-                .name(apiKey.getName())
+                .id(saved.getId())
+                .name(saved.getName())
                 .rawKey(rawApiKey)
-                .expiresAt(apiKey.getExpiresAt())
+                .prefix(publicPrefix)
+                .expiresAt(saved.getExpiresAt())
                 .build();
     }
 
@@ -85,7 +87,7 @@ public class ApiKeyServiceImpl implements ApiKeyService {
     @Transactional(readOnly = true)
     public List<ApiKeyResponse> getApiKeys(UUID customerId) {
         log.info("Fetching API keys for customerId: {}", customerId);
-        return apiKeyRepository.findByCustomerId(customerId)
+        return apiKeyRepository.findByCustomerIdAndStatusNot(customerId, ApiKeyStatus.TERMINATED)
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
@@ -116,7 +118,7 @@ public class ApiKeyServiceImpl implements ApiKeyService {
     @Override
     @Transactional
     public void revokeApiKey(UUID customerId, UUID keyId) {
-        log.info("Revoking API key ID: {} for customerId: {}", keyId, customerId);
+        log.info("Revoking and marking TERMINATED API key ID: {} for customerId: {}", keyId, customerId);
         ApiKey apiKey = apiKeyRepository.findByIdAndCustomerId(keyId, customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("API key not found with ID: " + keyId));
 
@@ -176,6 +178,7 @@ public class ApiKeyServiceImpl implements ApiKeyService {
         return ApiKeyResponse.builder()
                 .id(apiKey.getId())
                 .name(apiKey.getName())
+                .prefix(apiKey.getPrefix())
                 .usage(apiKey.getUsage())
                 .status(apiKey.getStatus())
                 .expiresAt(apiKey.getExpiresAt())

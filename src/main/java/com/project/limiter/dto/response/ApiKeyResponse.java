@@ -18,6 +18,7 @@ public class ApiKeyResponse {
 
     private UUID id;
     private String name;
+    private String prefix;
     private Long usage;
     private ApiKeyStatus status;
     private Instant expiresAt;
