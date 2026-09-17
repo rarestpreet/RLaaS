@@ -63,6 +63,7 @@ public class SecurityConfig {
                                                 .permitAll()
                                                 .requestMatchers(
                                                                 "/test/rate-limit/**",
+                                                                "/health/**",
                                                                 "/actuator/**",
                                                                 "/v3/api-docs/**",
                                                                 "/swagger-ui/**",

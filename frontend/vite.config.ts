@@ -15,6 +15,7 @@ export default defineConfig({
       '/api-keys': 'http://localhost:8080',
       '/v1': 'http://localhost:8080',
       '/test': 'http://localhost:8080',
+      '/health': 'http://localhost:8080',
       '/actuator': 'http://localhost:8080',
     },
   },

@@ -11,6 +11,8 @@ import {
   Activity,
   CheckCircle2
 } from 'lucide-react';
+import { fetchRedisHealth } from '../../api/health';
+import { ServiceHealth } from '../../types/health';
 
 interface HeaderProps {
   currentView: 'landing' | 'policies' | 'keys';
@@ -21,7 +23,28 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onOpenAuth }) => {
   const { user, isAuthenticated, logout } = useAuth();
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [redisHealth, setRedisHealth] = useState<ServiceHealth | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Poll Redis health dynamically every 8 seconds
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkHealth = async () => {
+      const health = await fetchRedisHealth();
+      if (isMounted) {
+        setRedisHealth(health);
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 8000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -60,18 +83,31 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onOpenA
           </div>
         </div>
 
-        {/* Center: System Status & Latency as Xms */}
+        {/* Center: Dynamic System Status & Latency from Backend */}
         <div className="hidden md:flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#18181b] border border-white/[0.08] text-xs font-mono">
+          <div 
+            title={redisHealth?.errorDetails ? `Redis: ${redisHealth.status} (${redisHealth.errorDetails})` : `Redis: ${redisHealth?.status || 'Connecting...'}`}
+            className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#18181b] border border-white/[0.08] text-xs font-mono transition-colors"
+          >
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#4edea3] opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#4edea3]"></span>
+              {redisHealth?.healthy ? (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#4edea3] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#4edea3]"></span>
+                </>
+              ) : (
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#f43f5e]"></span>
+              )}
             </span>
             <span className="text-[#a1a1aa]">Redis Cluster:</span>
-            <span className="text-[#4edea3] font-medium">Operational</span>
+            <span className={`font-medium ${redisHealth?.healthy ? 'text-[#4edea3]' : 'text-[#f43f5e]'}`}>
+              {redisHealth === null ? 'Connecting...' : redisHealth.healthy ? 'Operational' : 'Offline'}
+            </span>
             <span className="text-[#71717a]">|</span>
             <span className="text-[#a1a1aa]">Latency:</span>
-            <span className="text-[#fb923c] font-semibold">Xms</span>
+            <span className={`font-semibold ${redisHealth?.healthy ? 'text-[#fb923c]' : 'text-[#f43f5e]'}`}>
+              {redisHealth === null ? '...' : redisHealth.healthy ? `${redisHealth.latencyMs}ms` : 'Down'}
+            </span>
           </div>
         </div>
 
