@@ -28,14 +28,14 @@ public class RateLimiterTestServiceImpl implements RateLimiterTestService {
     private final ObjectMapper objectMapper;
     private final ServiceHealthRegistry serviceHealthRegistry;
 
-    // Conservative server-enforced limits for public/free unauthenticated tests
-    private static final long FREE_MAX_CAPACITY = 200L;
-    private static final int FREE_MAX_REFILL_RATE = 50;
-    private static final long FREE_MIN_INTERVAL_MS = 500L;
+    // Server-enforced limits for test/benchmarking (increased to 1M capacity / 100k refill for stress testing)
+    private static final long FREE_MAX_CAPACITY = 1_000_000L;
+    private static final int FREE_MAX_REFILL_RATE = 100_000;
+    private static final long FREE_MIN_INTERVAL_MS = 10L;
 
-    private static final long FREE_MAX_WINDOW_LIMIT = 500L;
-    private static final long FREE_MIN_WINDOW_MS = 1000L;
-    private static final long FREE_MAX_WINDOW_MS = 300000L; // 5 min max
+    private static final long FREE_MAX_WINDOW_LIMIT = 1_000_000L;
+    private static final long FREE_MIN_WINDOW_MS = 50L;
+    private static final long FREE_MAX_WINDOW_MS = 3600000L; // 1 hour max
 
     @Override
     public Decision checkFreeRateLimit(RateLimitTestRequest request, String clientIp) {

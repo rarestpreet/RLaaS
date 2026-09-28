@@ -1,5 +1,12 @@
 server:
   port: ${PORT:8080}
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:800}
+      min-spare: ${TOMCAT_MIN_SPARE_THREADS:100}
+    max-connections: ${TOMCAT_MAX_CONNECTIONS:25000}
+    accept-count: ${TOMCAT_ACCEPT_COUNT:2000}
+    connection-timeout: 5000ms
 
 spring:
   application:

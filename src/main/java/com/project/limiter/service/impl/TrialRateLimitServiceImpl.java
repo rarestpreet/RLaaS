@@ -32,17 +32,17 @@ public class TrialRateLimitServiceImpl implements TrialRateLimitService {
     private final AnchoredWindowAlgorithm anchoredWindowAlgorithm;
     private final ServiceHealthRegistry serviceHealthRegistry;
 
-    // Server-enforced boundaries for trial users
+    // Server-enforced boundaries for trial users (increased to support load & concurrency tests)
     private static final long MIN_CAPACITY = 1L;
-    private static final long MAX_CAPACITY = 1000L;
+    private static final long MAX_CAPACITY = 100_000L;
     private static final int MIN_REFILL_RATE = 1;
-    private static final int MAX_REFILL_RATE = 500;
-    private static final long MIN_REFILL_INTERVAL_MS = 100L;
+    private static final int MAX_REFILL_RATE = 25_000;
+    private static final long MIN_REFILL_INTERVAL_MS = 10L;
     private static final long MAX_REFILL_INTERVAL_MS = 60000L;
 
     private static final long MIN_WINDOW_LIMIT = 1L;
-    private static final long MAX_WINDOW_LIMIT = 10000L;
-    private static final long MIN_WINDOW_MS = 1000L;
+    private static final long MAX_WINDOW_LIMIT = 100_000L;
+    private static final long MIN_WINDOW_MS = 50L;
     private static final long MAX_WINDOW_MS = 3600000L; // 1 hour max
 
     @Override
